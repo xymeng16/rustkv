@@ -1,0 +1,29 @@
+name: rustkv
+version: "0.1.0"
+author: "Xiangyi Meng <xymeng16@gmail.com>"
+about: "A key-value store"
+# sub-command should be used
+subcommands:
+  - set:
+      about: Set the value of the given key
+      args:
+        - pair:
+            help: kv pair to add
+            takes_value: true
+            multiple: true
+            required: true
+            number_of_values: 2
+  - get:
+      about: Get the value of the given key
+      args:
+        - key:
+            help: the key of the value to get
+            takes_value: true
+            required: true
+  - rm:
+      about: Remove the given key and its corresponding value
+      args:
+        - key:
+            help: the key of the value to remove
+            takes_value: true
+            required: true
