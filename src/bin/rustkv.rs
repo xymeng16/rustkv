@@ -35,7 +35,7 @@ fn main() {
         Command::Set { key, value } => {
             kvs.set(key.clone(), value.clone());
             println!("kv pair {}:{} is set.", key, value)
-        }
+        },
         Command::Get { key } => match kvs.get(key.clone()).unwrap() {
             Some(value) => {
                 println!("kv pair {}:{} is found.", key, value)
