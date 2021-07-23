@@ -4,11 +4,10 @@
 //! rustkv rm <KEY>
 //! rustkv -V
 //!
-use clap::{load_yaml, App};
 use rustkv::KvStore;
 use std::env;
-use std::process::exit;
 use structopt::StructOpt;
+use rustkv::Result;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -28,25 +27,27 @@ enum Command {
     Rm { key: String },
 }
 
-fn main() {
+fn main() -> Result<()> {
     let mut kvs = KvStore::new().unwrap();
 
     match Opt::from_args().cmd {
         Command::Set { key, value } => {
-            kvs.set(key.clone(), value.clone());
-            println!("kv pair {}:{} is set.", key, value)
+            kvs.set(key.clone(), value.clone())?;
+            println!("kv pair {}:{} is set.", key, value);
         },
-        Command::Get { key } => match kvs.get(key.clone()).unwrap() {
+        Command::Get { key } => match kvs.get(key.clone())? {
             Some(value) => {
-                println!("kv pair {}:{} is found.", key, value)
+                println!("kv pair {}:{} is found.", key, value);
             }
             None => {
                 println!("The value of the key {} is not found.", key)
             }
         },
         Command::Rm { key } => {
-            kvs.remove(key.clone());
-            println!("the value of the key {} is removed.", key)
+            kvs.remove(key.clone())?;
+            println!("the value of the key {} is removed.", key);
         }
     }
+
+    Ok(())
 }

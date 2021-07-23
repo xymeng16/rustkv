@@ -5,12 +5,28 @@
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
-mod err;
 
 use std::collections::hash_map::HashMap;
 use std::path::PathBuf;
 use failure::Error;
-use crate::err::KvStoreError;
+
+/// The possible error type of KvStore.
+#[derive(Fail, Debug)]
+pub enum KvStoreError {
+    /// The given key doesn't exist.
+    #[fail(display = "key {} doesn't exist.", _0)]
+    KeyNotExist(String),
+    /// IO error, indicated by filesystem.
+
+    #[fail(display = "IO error: {}", error)]
+    IoError {
+        /// * `error` std::io::Error
+        error: std::io::Error
+    },
+    /// Unknown errors.
+    #[fail(display = "An unknown error has occurred.")]
+    UnknownError,
+}
 
 /// The common return type for the rustkv
 pub type Result<T> = std::result::Result<T, Error>;
