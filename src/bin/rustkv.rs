@@ -4,10 +4,12 @@
 //! rustkv rm <KEY>
 //! rustkv -V
 //!
+use failure::Error;
 use rustkv::KvStore;
-use std::env;
-use structopt::StructOpt;
 use rustkv::Result;
+use std::env;
+use std::process::exit;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -31,21 +33,33 @@ fn main() -> Result<()> {
     let mut kvs = KvStore::new().unwrap();
 
     match Opt::from_args().cmd {
-        Command::Set { key, value } => {
-            kvs.set(key.clone(), value.clone())?;
-            println!("kv pair {}:{} is set.", key, value);
-        },
-        Command::Get { key } => match kvs.get(key.clone())? {
-            Some(value) => {
-                println!("kv pair {}:{} is found.", key, value);
+        Command::Set { key, value } => match kvs.set(key.clone(), value.clone()) {
+            Ok(_) => {
+                exit(0);
             }
-            None => {
-                println!("The value of the key {} is not found.", key)
+            Err(e) => {
+                println!("{}", e);
+                exit(1);
             }
         },
-        Command::Rm { key } => {
-            kvs.remove(key.clone())?;
-            println!("the value of the key {} is removed.", key);
+        Command::Get { key } => match kvs.get(key.clone()) {
+            Ok(value) => {
+                println!("{}", value.unwrap());
+                exit(0);
+            }
+            Err(e) => {
+                println!("{}", e);
+                exit(0);
+            }
+        },
+        Command::Rm { key } => match kvs.remove(key.clone()) {
+            Ok(_) => {
+                exit(0);
+            }
+            Err(e) => {
+                println!("{}", e);
+                exit(1);
+            }
         }
     }
 

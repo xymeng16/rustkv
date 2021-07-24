@@ -8,20 +8,24 @@ extern crate failure_derive;
 
 use std::collections::hash_map::HashMap;
 use std::path::PathBuf;
+use std::fs::File;
+use std::io::prelude::*;
+
 use failure::Error;
+use serde::{Serialize, Deserialize};
 
 /// The possible error type of KvStore.
 #[derive(Fail, Debug)]
 pub enum KvStoreError {
     /// The given key doesn't exist.
-    #[fail(display = "key {} doesn't exist.", _0)]
+    #[fail(display = "Key not found")]
     KeyNotExist(String),
     /// IO error, indicated by filesystem.
 
     #[fail(display = "IO error: {}", error)]
     IoError {
         /// * `error` std::io::Error
-        error: std::io::Error
+        error: std::io::Error,
     },
     /// Unknown errors.
     #[fail(display = "An unknown error has occurred.")]
@@ -34,6 +38,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// The struct of the KvStore.
 pub struct KvStore {
     map: HashMap<String, String>,
+    logfile: File,
+}
+
+impl Drop for KvStore {
+    fn drop(&mut self) {
+
+    }
 }
 
 impl KvStore {
@@ -46,6 +57,7 @@ impl KvStore {
     pub fn new() -> Result<KvStore> {
         Ok(KvStore {
             map: HashMap::new(),
+            logfile: File::create("default.bson")?,
         })
     }
 
@@ -56,7 +68,10 @@ impl KvStore {
     /// let mut kvs = KvStore::open(path).unwrap();
     /// ```
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
-        unimplemented!()
+        Ok(KvStore {
+            map: HashMap::new(),
+            logfile: File::open(path.into())?,
+        })
     }
 
     /// Sets the value of the given key
@@ -84,12 +99,12 @@ impl KvStore {
     ///
     /// kvs.set(String::from("key"), String::from("value"));
     ///
-    /// assert_eq!(kvs.get(String::from("key")), Some(String::from("value")));;
+    /// assert_eq!(kvs.get(String::from("key")), Some(String::from("value")));
     /// ```
     pub fn get(self: &KvStore, key: String) -> Result<Option<String>> {
-        match self.map.get(key.as_str()).map(String::from) {
-            Some(value) => Ok(Some(value)),
-            None => Err(Error::from(KvStoreError::KeyNotExist(key))),
+        match self.map.get(key.as_str()) {
+            Some(value) => Ok(Some(String::from(value))),
+            None => Err(From::from(KvStoreError::KeyNotExist(key))),
         }
     }
 
@@ -108,8 +123,10 @@ impl KvStore {
     /// assert_eq!(kvs.get(String::from("key")), None);
     /// ```
     pub fn remove(self: &mut KvStore, key: String) -> Result<()> {
-        self.map.remove(key.as_str());
-        Ok(())
+        match self.map.remove(key.as_str()) {
+            Some(key) => Ok(()),
+            None => Err(From::from(KvStoreError::KeyNotExist(key))),
+        }
     }
 }
 
