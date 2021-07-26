@@ -34,9 +34,7 @@ fn main() -> Result<()> {
 
     match Opt::from_args().cmd {
         Command::Set { key, value } => match kvs.set(key.clone(), value.clone()) {
-            Ok(_) => {
-                exit(0);
-            }
+            Ok(_) => Ok(()),
             Err(e) => {
                 println!("{}", e);
                 exit(1);
@@ -45,7 +43,7 @@ fn main() -> Result<()> {
         Command::Get { key } => match kvs.get(key.clone()) {
             Ok(value) => {
                 println!("{}", value.unwrap());
-                exit(0);
+                Ok(())
             }
             Err(e) => {
                 println!("{}", e);
@@ -53,15 +51,11 @@ fn main() -> Result<()> {
             }
         },
         Command::Rm { key } => match kvs.remove(key.clone()) {
-            Ok(_) => {
-                exit(0);
-            }
+            Ok(_) => Ok(()),
             Err(e) => {
                 println!("{}", e);
                 exit(1);
             }
-        }
+        },
     }
-
-    Ok(())
 }

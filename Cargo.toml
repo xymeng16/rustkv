@@ -12,7 +12,7 @@ structopt = "0.3.22"
 failure = "0.1.8"
 failure_derive = "0.1.8"
 serde = "1.0.126"
-bson = "2.0.0-beta.2"
+bson = { version = "2.0.0-beta.2", features = ["u2i"] }
 
 [dev-dependencies]
 assert_cmd = "0.11.0"
