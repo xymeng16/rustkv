@@ -2,6 +2,8 @@
 //!
 //! This crate defines a simple in-memory key-value store.
 //!
+mod error;
+
 extern crate failure;
 #[macro_use]
 extern crate failure_derive;
@@ -15,6 +17,7 @@ use failure::Error;
 use serde::{Deserialize, Serialize};
 // use simple_logger::SimpleLogger;
 // use log::LevelFilter;
+use error::KvStoreError;
 use function_name::named;
 // static LOGLEVEL: LevelFilter = LevelFilter::Debug;
 
@@ -23,25 +26,6 @@ use function_name::named;
 //     LOG_FILE_WRITTEN,
 //     KEY_REMOVED,
 // }
-
-/// The possible error type of KvStore.
-#[derive(Fail, Debug)]
-#[allow(dead_code)]
-enum KvStoreError {
-    /// The given key doesn't exist.
-    #[fail(display = "Key not found")]
-    KeyNotExist(String),
-    /// IO error, indicated by filesystem.
-
-    #[fail(display = "IO error: {}", error)]
-    IoError {
-        /// * `error` std::io::Error
-        error: std::io::Error,
-    },
-    /// Unknown errors.
-    #[fail(display = "An unknown error has occurred.")]
-    UnknownError,
-}
 
 /// The common return type for the rustkv
 pub type Result<T> = std::result::Result<T, Error>;
@@ -64,8 +48,8 @@ pub struct KvStore {
     map: HashMap<String, String>,
     logfile: File,
     write_buf: Vec<KvStoreCommand>,
-    isread: bool,
-    isdirty: bool,
+    is_read: bool,
+    is_dirty: bool,
     // runtime_log: simple_logger::SimpleLogger,
 }
 
@@ -97,8 +81,8 @@ impl KvStore {
             map: HashMap::new(),
             logfile: File::create("default.bson")?,
             write_buf: Vec::new(),
-            isread: true,
-            isdirty: false,
+            is_read: true,
+            is_dirty: false,
         })
     }
 
@@ -124,8 +108,8 @@ impl KvStore {
                 .create(true)
                 .open(path)?,
             write_buf: Vec::new(),
-            isread: false,
-            isdirty: false,
+            is_read: false,
+            is_dirty: false,
         })
     }
 
@@ -150,7 +134,7 @@ impl KvStore {
         // TODO: consider when to perform the real writing operation
         self.map.insert(key, value);
 
-        self.isdirty = true;
+        self.is_dirty = true;
 
         Ok(())
     }
@@ -213,7 +197,7 @@ impl KvStore {
         hence, here I may try to use Smart Pointers to avoid breaking
         above rules.
          */
-        if !self.isread {
+        if !self.is_read {
             // dbg!("self.isread not true!");
             if self.logfile.metadata().unwrap().len() != 0 {
                 loop {
@@ -225,7 +209,7 @@ impl KvStore {
                         break;
                     }
                 }
-                self.isread = true;
+                self.is_read = true;
 
                 // make sure the logfile is loaded successfully before
                 for command in &self.write_buf {
