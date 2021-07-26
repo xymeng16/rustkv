@@ -4,12 +4,15 @@
 //! rustkv rm <KEY>
 //! rustkv -V
 //!
-use failure::Error;
+
 use rustkv::KvStore;
 use rustkv::Result;
+
 use std::env;
 use std::process::exit;
+
 use structopt::StructOpt;
+// use failure::Error;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -30,19 +33,22 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let mut kvs = KvStore::new().unwrap();
+    let mut kvs = KvStore::open(std::env::current_dir().unwrap()).unwrap();
 
     match Opt::from_args().cmd {
-        Command::Set { key, value } => match kvs.set(key.clone(), value.clone()) {
+        Command::Set { key, value } => match kvs.set(key, value) {
             Ok(_) => Ok(()),
             Err(e) => {
                 println!("{}", e);
                 exit(1);
             }
         },
-        Command::Get { key } => match kvs.get(key.clone()) {
+        Command::Get { key } => match kvs.get(key) {
             Ok(value) => {
-                println!("{}", value.unwrap());
+                match value {
+                    Some(value) => println!("{}", value),
+                    None => println!("Key not found"),
+                }
                 Ok(())
             }
             Err(e) => {
@@ -50,7 +56,7 @@ fn main() -> Result<()> {
                 exit(0);
             }
         },
-        Command::Rm { key } => match kvs.remove(key.clone()) {
+        Command::Rm { key } => match kvs.remove(key) {
             Ok(_) => Ok(()),
             Err(e) => {
                 println!("{}", e);

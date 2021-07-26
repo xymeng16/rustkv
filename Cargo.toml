@@ -13,6 +13,9 @@ failure = "0.1.8"
 failure_derive = "0.1.8"
 serde = "1.0.126"
 bson = { version = "2.0.0-beta.2", features = ["u2i"] }
+log = "0.4.14"
+simple_logger = "1.11.0"
+function_name = "0.2.0"
 
 [dev-dependencies]
 assert_cmd = "0.11.0"
