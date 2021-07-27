@@ -3,6 +3,7 @@
 //! This crate defines a simple in-memory key-value store.
 //!
 mod error;
+pub mod logptr;
 
 extern crate failure;
 #[macro_use]
@@ -17,8 +18,12 @@ use failure::Error;
 use serde::{Deserialize, Serialize};
 // use simple_logger::SimpleLogger;
 // use log::LevelFilter;
-use error::KvStoreError;
+use chrono::Utc;
 use function_name::named;
+
+use error::KvStoreError;
+use logptr::KvStoreLogPtr;
+
 // static LOGLEVEL: LevelFilter = LevelFilter::Debug;
 
 // #[derive(Debug)]
@@ -37,19 +42,18 @@ enum KvStoreCommand {
     Rm { key: String },
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct KVStoreBuffer {
-    buf: Vec<KvStoreCommand>,
-    count: usize, // TODO: remove useless
-}
-
 /// The struct of the KvStore.
+/// Inspired by the bitcask structure, we do not save the key-value map
+/// directly in the memory. Instead, we save the following tuple for each
+/// record (the so-called log pointer):
+/// `[file_id, value_size, value_position, timestamp]`
 pub struct KvStore {
-    map: HashMap<String, String>,
+    map: HashMap<String, KvStoreLogPtr>,
     logfile: File,
     write_buf: Vec<KvStoreCommand>,
     is_read: bool,
     is_dirty: bool,
+    latest_log_position: u32,
     // runtime_log: simple_logger::SimpleLogger,
 }
 
@@ -83,6 +87,7 @@ impl KvStore {
             write_buf: Vec::new(),
             is_read: true,
             is_dirty: false,
+            latest_log_position: 0,
         })
     }
 
@@ -110,6 +115,7 @@ impl KvStore {
             write_buf: Vec::new(),
             is_read: false,
             is_dirty: false,
+            latest_log_position: 0,
         })
     }
 
