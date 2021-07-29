@@ -21,9 +21,13 @@ use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use function_name::named;
 
+use crate::logptr::KvStoreLogFile;
 use error::KvStoreError;
 use logptr::KvStoreLogPtr;
+use std::borrow::BorrowMut;
 
+static DB_DIR_PATH: &str = "db/";
+static INDEX_FILENAME: &str = "index.bson";
 // static LOGLEVEL: LevelFilter = LevelFilter::Debug;
 
 // #[derive(Debug)]
@@ -47,9 +51,10 @@ enum KvStoreCommand {
 /// directly in the memory. Instead, we save the following tuple for each
 /// record (the so-called log pointer):
 /// `[file_id, value_size, value_position, timestamp]`
-pub struct KvStore {
+pub struct KvStore<'a> {
     map: HashMap<String, KvStoreLogPtr>,
-    logfile: File,
+    logfiles: Vec<KvStoreLogFile>,
+    active_log_file: &'a mut KvStoreLogFile,
     write_buf: Vec<KvStoreCommand>,
     is_read: bool,
     is_dirty: bool,
@@ -57,37 +62,42 @@ pub struct KvStore {
     // runtime_log: simple_logger::SimpleLogger,
 }
 
-impl Drop for KvStore {
+impl<'a> Drop for KvStore<'a> {
     fn drop(&mut self) {
-        if self.write_buf.is_empty() {
-            return;
-        }
-
-        for command in &self.write_buf {
-            bson::to_document(command)
-                .unwrap()
-                .to_writer(&mut self.logfile)
-                .unwrap();
-        }
-        self.logfile.flush().unwrap();
+        self.active_log_file.force_write_back();
+        self.active_log_file.file.flush(); //
+        bson::to_document(&self.map)
+            .unwrap()
+            .to_writer(File::open(INDEX_FILENAME).unwrap())
+            .unwrap();
     }
 }
 
-impl KvStore {
+impl<'a> KvStore<'a> {
     /// Create a new KvStore instance
     /// ```rust
     /// use rustkv::KvStore;
     ///
     /// let mut kvs = KvStore::new();
     /// ```
-    pub fn new() -> Result<KvStore> {
+    pub fn new() -> Result<KvStore<'a>> {
+        // This should be an initialization routine.
+        // Create index file
+        {
+            let index_file = File::create(INDEX_FILENAME)?;
+            // after leaving this scope, the index_file is destroyed and created
+        }
+        let mut logfiles = Vec::<KvStoreLogFile>::new();
+        logfiles.push(KvStoreLogFile::create_or_open(0, DB_DIR_PATH.to_owned() + "log1.bson")?);
+        let active_log_file = logfiles[0].borrow_mut();
         Ok(KvStore {
             map: HashMap::new(),
-            logfile: File::create("default.bson")?,
+            logfiles,
             write_buf: Vec::new(),
             is_read: true,
             is_dirty: false,
             latest_log_position: 0,
+            active_log_file,
         })
     }
 
@@ -100,22 +110,19 @@ impl KvStore {
     ///
     /// let mut kvs = KvStore::open(path).unwrap();
     /// ```
-    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
+    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore<'a>> {
         let mut path = path.into();
         path.push("log");
         path.set_extension("bson");
 
         Ok(KvStore {
             map: HashMap::new(),
-            logfile: OpenOptions::new()
-                .read(true)
-                .append(true)
-                .create(true)
-                .open(path)?,
+            logfiles: Vec::new(),
             write_buf: Vec::new(),
             is_read: false,
             is_dirty: false,
             latest_log_position: 0,
+            active_log_file: &mut KvStoreLogFile::create_or_open(1, "a.bson")?,
         })
     }
 
@@ -138,7 +145,7 @@ impl KvStore {
         self.write_buf.push(command);
 
         // TODO: consider when to perform the real writing operation
-        self.map.insert(key, value);
+        self.active_log_file.append(key, value);
 
         self.is_dirty = true;
 
@@ -157,15 +164,19 @@ impl KvStore {
     /// assert_eq!(kvs.get(String::from("key")).unwrap(), Some(String::from("value")));
     /// ```
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        self.replay()?;
+        // self.replay()?;
         self._get(key)
     }
 
-    fn _get(&self, key: String) -> Result<Option<String>> {
-        match self.map.get(key.as_str()) {
-            Some(value) => Ok(Some(String::from(value))),
-            None => Ok(None),
-        }
+    fn _get(&mut self, key: String) -> Result<Option<String>> {
+        // match self.map.get(key.as_str()) {
+        //     Some(value) => Ok(Some(value)),
+        //     None => Ok(None),
+        // }
+        let alf = self.active_log_file.borrow_mut();
+        Ok(self.map.get(key.as_str()).map(|logptr| {
+            String::from_utf8(alf.read_and_check(logptr.value_position).unwrap().value).unwrap()
+        }))
     }
 
     /// Removes a key from the KvStore if existed
@@ -183,7 +194,7 @@ impl KvStore {
     /// assert_eq!(kvs.get(String::from("key")).unwrap(), None);
     /// ```
     pub fn remove(&mut self, key: String) -> Result<()> {
-        self.replay()?;
+        // self.replay()?;
 
         let command = KvStoreCommand::Rm { key: key.clone() };
         self.write_buf.push(command);
@@ -194,51 +205,51 @@ impl KvStore {
         }
     }
 
-    #[named]
-    fn replay(self: &mut KvStore) -> Result<()> {
-        /*
-        Some rules of reference in Rust:
-        1. an object cannot be borrowed as both mutable and immutable
-        2. an object cannot be borrowed as mutable for more than once
-        hence, here I may try to use Smart Pointers to avoid breaking
-        above rules.
-         */
-        if !self.is_read {
-            // dbg!("self.isread not true!");
-            if self.logfile.metadata().unwrap().len() != 0 {
-                loop {
-                    let command: KvStoreCommand = bson::from_document(
-                        bson::Document::from_reader(&mut self.logfile).unwrap(),
-                    )?;
-                    self.write_buf.push(command);
-                    if self.logfile.stream_position()? == self.logfile.metadata().unwrap().len() {
-                        break;
-                    }
-                }
-                self.is_read = true;
-
-                // make sure the logfile is loaded successfully before
-                for command in &self.write_buf {
-                    match command {
-                        KvStoreCommand::Set { key, value } => {
-                            self.map.insert(key.to_owned(), value.to_owned());
-                        }
-                        KvStoreCommand::Get { key } => {
-                            self._get(key.to_owned())?;
-                        }
-                        KvStoreCommand::Rm { key } => {
-                            self.map.remove(key.as_str());
-                        }
-                    }
-                }
-                self.write_buf.clear();
-            }
-        }
-        Ok(())
-    }
+    // #[named]
+    // fn replay(self: &mut KvStore<'a>) -> Result<()> {
+    //     /*
+    //     Some rules of reference in Rust:
+    //     1. an object cannot be borrowed as both mutable and immutable
+    //     2. an object cannot be borrowed as mutable for more than once
+    //     hence, here I may try to use Smart Pointers to avoid breaking
+    //     above rules.
+    //      */
+    //     if !self.is_read {
+    //         // dbg!("self.isread not true!");
+    //         if self.logfile.metadata().unwrap().len() != 0 {
+    //             loop {
+    //                 let command: KvStoreCommand = bson::from_document(
+    //                     bson::Document::from_reader(&mut self.logfile).unwrap(),
+    //                 )?;
+    //                 self.write_buf.push(command);
+    //                 if self.logfile.stream_position()? == self.logfile.metadata().unwrap().len() {
+    //                     break;
+    //                 }
+    //             }
+    //             self.is_read = true;
+    //
+    //             // make sure the logfile is loaded successfully before
+    //             for command in &self.write_buf {
+    //                 match command {
+    //                     KvStoreCommand::Set { key, value } => {
+    //                         self.map.insert(key.to_owned(), value.to_owned());
+    //                     }
+    //                     KvStoreCommand::Get { key } => {
+    //                         self._get(key.to_owned())?;
+    //                     }
+    //                     KvStoreCommand::Rm { key } => {
+    //                         self.map.remove(key.as_str());
+    //                     }
+    //                 }
+    //             }
+    //             self.write_buf.clear();
+    //         }
+    //     }
+    //     Ok(())
+    // }
 }
 
-impl Default for KvStore {
+impl<'a> Default for KvStore<'a> {
     fn default() -> Self {
         Self::new().unwrap()
     }

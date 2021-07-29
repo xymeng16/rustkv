@@ -8,10 +8,7 @@ pub enum KvStoreError {
     /// IO error, indicated by filesystem.
 
     #[fail(display = "IO error: {}.", error)]
-    IoError {
-        /// * `error` std::io::Error
-        error: std::io::Error,
-    },
+    IoError { error: String },
 
     #[fail(display = "Key/Value length cannot be zero.")]
     KeyValueZeroSizeError,
