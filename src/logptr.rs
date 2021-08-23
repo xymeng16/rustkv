@@ -1,5 +1,7 @@
-#![deny(missing_docs)]
-
+// #![deny(missing_docs)]
+//!
+//! This module handles the basic operations for the log pointers.
+//!
 extern crate crc32fast;
 
 use super::Result;
@@ -52,35 +54,36 @@ impl KvStoreLog {
             return Err(From::from(KvStoreError::KeyValueZeroSizeError));
         }
         let ts = Utc::now().timestamp();
-        let crc = KvStoreLog::get_crc(&key, &value, ts);
-
-        Ok(KvStoreLog {
-            crc,
+        let mut ret = KvStoreLog {
+            crc: 0,
             timestamp: ts,
             key_size: key.len() as u32,
             value_size: value.len() as u32,
             key,
             value,
-        })
+        };
+        ret.crc = ret.get_crc();
+
+        Ok(ret)
     }
 
-    fn get_crc(key: &Vec<u8>, value: &Vec<u8>, timestamp: i64) -> u32 {
+    pub fn get_crc(&mut self) -> u32 {
         // compute the crc first
         let mut hasher = Hasher::new();
         let mut ts_buf = [0 as u8; size_of::<i64>()];
         let mut size_buf = [0 as u8; size_of::<u32>()];
 
-        LittleEndian::write_i64(&mut ts_buf, timestamp);
+        LittleEndian::write_i64(&mut ts_buf, self.timestamp);
         hasher.update(&ts_buf);
 
-        LittleEndian::write_u32(&mut size_buf, key.len() as u32);
+        LittleEndian::write_u32(&mut size_buf, self.key_size as u32);
         hasher.update(&size_buf);
 
-        LittleEndian::write_u32(&mut size_buf, value.len() as u32);
+        LittleEndian::write_u32(&mut size_buf, self.value_size as u32);
         hasher.update(&size_buf);
 
-        hasher.update(&key.as_slice());
-        hasher.update(&value.as_slice());
+        hasher.update(&self.key.as_slice());
+        hasher.update(&self.value.as_slice());
 
         hasher.finalize()
     }
@@ -94,13 +97,14 @@ impl KvStoreLogFile {
             .append(true)
             .create(true)
             .open(path.into())?;
+        let len = file.metadata().unwrap().len();
         Ok(KvStoreLogFile {
             file_id: fid,
             file,
             is_dirty: false,
             count: 0,
             write_buf: Vec::with_capacity(BUF_SIZE),
-            current_position: file.metadata().unwrap().len(),
+            current_position: len,
         })
     }
 
@@ -167,8 +171,15 @@ impl KvStoreLogFile {
     pub fn read_and_check(&mut self, pos: u64) -> Result<KvStoreLog> {
         // TODO: how to ensure position is legal?
         self.file.seek(SeekFrom::Start(pos));
-        Ok(bson::from_document(bson::Document::from_reader(
-            &mut self.file,
-        )?)?)
+        let mut ret: KvStoreLog =
+            bson::from_document(bson::Document::from_reader(&mut self.file)?)?;
+        let crc = ret.crc;
+        if crc == ret.get_crc() {
+            return Ok(ret);
+        }
+        return Err(From::from(KvStoreError::CRCMismatch {
+            expected: crc,
+            got: ret.get_crc(),
+        }));
     }
 }

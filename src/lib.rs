@@ -1,4 +1,4 @@
-#![deny(missing_docs)]
+// #![deny(missing_docs)]
 //!
 //! This crate defines a simple in-memory key-value store.
 //!
@@ -51,10 +51,10 @@ enum KvStoreCommand {
 /// directly in the memory. Instead, we save the following tuple for each
 /// record (the so-called log pointer):
 /// `[file_id, value_size, value_position, timestamp]`
-pub struct KvStore<'a> {
+pub struct KvStore{
     map: HashMap<String, KvStoreLogPtr>,
     logfiles: Vec<KvStoreLogFile>,
-    active_log_file: &'a mut KvStoreLogFile,
+    active_log_file: usize,
     write_buf: Vec<KvStoreCommand>,
     is_read: bool,
     is_dirty: bool,
@@ -62,10 +62,10 @@ pub struct KvStore<'a> {
     // runtime_log: simple_logger::SimpleLogger,
 }
 
-impl<'a> Drop for KvStore<'a> {
+impl Drop for KvStore {
     fn drop(&mut self) {
-        self.active_log_file.force_write_back();
-        self.active_log_file.file.flush(); //
+        self.logfiles[self.active_log_file].force_write_back();
+        self.logfiles[self.active_log_file].file.flush();
         bson::to_document(&self.map)
             .unwrap()
             .to_writer(File::open(INDEX_FILENAME).unwrap())
@@ -73,32 +73,35 @@ impl<'a> Drop for KvStore<'a> {
     }
 }
 
-impl<'a> KvStore<'a> {
+impl KvStore {
     /// Create a new KvStore instance
     /// ```rust
     /// use rustkv::KvStore;
     ///
     /// let mut kvs = KvStore::new();
     /// ```
-    pub fn new() -> Result<KvStore<'a>> {
+    pub fn new() -> Result<KvStore> {
         // This should be an initialization routine.
         // Create index file
         {
             let index_file = File::create(INDEX_FILENAME)?;
             // after leaving this scope, the index_file is destroyed and created
         }
-        let mut logfiles = Vec::<KvStoreLogFile>::new();
-        logfiles.push(KvStoreLogFile::create_or_open(0, DB_DIR_PATH.to_owned() + "log1.bson")?);
-        let active_log_file = logfiles[0].borrow_mut();
-        Ok(KvStore {
+        let mut ret = KvStore {
             map: HashMap::new(),
-            logfiles,
+            logfiles: Vec::new(),
+            active_log_file: 0,
             write_buf: Vec::new(),
             is_read: true,
             is_dirty: false,
             latest_log_position: 0,
-            active_log_file,
-        })
+        };
+        ret.logfiles.push(KvStoreLogFile::create_or_open(
+            0,
+            DB_DIR_PATH.to_owned() + "log1.bson",
+        )?);
+
+        Ok(ret)
     }
 
     /// Open the KvStore at a given path. Return the KvStore, if successful.
@@ -110,7 +113,7 @@ impl<'a> KvStore<'a> {
     ///
     /// let mut kvs = KvStore::open(path).unwrap();
     /// ```
-    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore<'a>> {
+    pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
         let mut path = path.into();
         path.push("log");
         path.set_extension("bson");
@@ -122,7 +125,7 @@ impl<'a> KvStore<'a> {
             is_read: false,
             is_dirty: false,
             latest_log_position: 0,
-            active_log_file: &mut KvStoreLogFile::create_or_open(1, "a.bson")?,
+            active_log_file: 0, // TODO: fix this
         })
     }
 
@@ -145,7 +148,7 @@ impl<'a> KvStore<'a> {
         self.write_buf.push(command);
 
         // TODO: consider when to perform the real writing operation
-        self.active_log_file.append(key, value);
+        self.logfiles[self.active_log_file].append(key, value);
 
         self.is_dirty = true;
 
@@ -173,7 +176,7 @@ impl<'a> KvStore<'a> {
         //     Some(value) => Ok(Some(value)),
         //     None => Ok(None),
         // }
-        let alf = self.active_log_file.borrow_mut();
+        let alf = self.logfiles[self.active_log_file].borrow_mut();
         Ok(self.map.get(key.as_str()).map(|logptr| {
             String::from_utf8(alf.read_and_check(logptr.value_position).unwrap().value).unwrap()
         }))
@@ -249,7 +252,7 @@ impl<'a> KvStore<'a> {
     // }
 }
 
-impl<'a> Default for KvStore<'a> {
+impl Default for KvStore {
     fn default() -> Self {
         Self::new().unwrap()
     }

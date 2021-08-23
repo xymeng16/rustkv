@@ -6,7 +6,6 @@ pub enum KvStoreError {
     #[fail(display = "Key not found.")]
     KeyNotExist(String),
     /// IO error, indicated by filesystem.
-
     #[fail(display = "IO error: {}.", error)]
     IoError { error: String },
 
@@ -18,6 +17,12 @@ pub enum KvStoreError {
         expected, got
     )]
     LogBufNotFullyWritten { expected: u32, got: u32 },
+
+    #[fail(
+        display = "KvStoreLog CRC mismatched. Expected {}, got {}.",
+        expected, got
+    )]
+    CRCMismatch { expected: u32, got: u32 },
 
     /// Unknown errors.
     #[fail(display = "An unknown error has occurred.")]

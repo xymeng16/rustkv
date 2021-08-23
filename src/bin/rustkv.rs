@@ -12,6 +12,7 @@ use std::env;
 use std::process::exit;
 
 use structopt::StructOpt;
+use rustkv::logptr::KvStoreLogFile;
 // use failure::Error;
 
 #[derive(Debug, StructOpt)]
@@ -33,8 +34,8 @@ enum Command {
 }
 
 fn main() -> Result<()> {
-    let mut kvs = KvStore::open(std::env::current_dir().unwrap()).unwrap();
-
+    // let mut kvs = KvStore::open(std::env::current_dir().unwrap()).unwrap();
+    let mut kvs = KvStore::new()?;
     match Opt::from_args().cmd {
         Command::Set { key, value } => match kvs.set(key, value) {
             Ok(_) => Ok(()),
