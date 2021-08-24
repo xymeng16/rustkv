@@ -25,6 +25,7 @@ use crate::logptr::KvStoreLogFile;
 use error::KvStoreError;
 use logptr::KvStoreLogPtr;
 use std::borrow::BorrowMut;
+use std::env;
 
 static DB_DIR_PATH: &str = "db/";
 static INDEX_FILENAME: &str = "index.bson";
@@ -64,12 +65,20 @@ pub struct KvStore{
 
 impl Drop for KvStore {
     fn drop(&mut self) {
+        if self.logfiles.len() == 0 {
+            return;
+        }
         self.logfiles[self.active_log_file].force_write_back();
         self.logfiles[self.active_log_file].file.flush();
+        let mut index_file = OpenOptions::new().create(true).append(true).open(INDEX_FILENAME).unwrap();
+        let mut buf = Vec::new();
         bson::to_document(&self.map)
             .unwrap()
-            .to_writer(File::open(INDEX_FILENAME).unwrap())
+            .to_writer(&mut buf)
             .unwrap();
+        let n = buf.len();
+        index_file.write_all(buf.as_slice());
+        index_file.flush();
     }
 }
 
@@ -84,8 +93,8 @@ impl KvStore {
         // This should be an initialization routine.
         // Create index file
         {
-            let index_file = File::create(INDEX_FILENAME)?;
-            // after leaving this scope, the index_file is destroyed and created
+            let _index_file = File::create(INDEX_FILENAME)?;
+            // after leaving this scope, the _index_file is destroyed and created
         }
         let mut ret = KvStore {
             map: HashMap::new(),
@@ -96,10 +105,10 @@ impl KvStore {
             is_dirty: false,
             latest_log_position: 0,
         };
-        ret.logfiles.push(KvStoreLogFile::create_or_open(
-            0,
-            DB_DIR_PATH.to_owned() + "log1.bson",
-        )?);
+
+        let alf = KvStoreLogFile::create_or_open(0, DB_DIR_PATH.to_owned() + "log1.bson")?;
+        ret.logfiles.push(alf);
+        std::io::stdout().flush();
 
         Ok(ret)
     }
@@ -148,7 +157,9 @@ impl KvStore {
         self.write_buf.push(command);
 
         // TODO: consider when to perform the real writing operation
-        self.logfiles[self.active_log_file].append(key, value);
+        let logptr = self.logfiles[self.active_log_file].append(key.clone(), value)?;
+
+        self.map.insert(key, logptr);
 
         self.is_dirty = true;
 
